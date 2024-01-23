@@ -11,6 +11,9 @@ DELTA_X = 0.5
 DELTA_Y = 0.5
 DELTA_T = 0.1
 
+NUM_X = int(LENGTH_X/DELTA_X)
+NUM_Y = int(LENGTH_Y/DELTA_Y)
+
 VISCOCITY = 0.0
 DENSITY = 1.0
 
@@ -47,7 +50,7 @@ class Node:
 
 
 grid = np.empty(
-    (int(LENGTH_X/DELTA_X), int(LENGTH_X/DELTA_X)),
+    (NUM_X, NUM_Y),
     dtype=Node
 )
 
@@ -68,6 +71,51 @@ for y_num, row in enumerate(grid):
 
 
 
+# Solve the PDEs
+# ==============
+        
+for t in range(5):
+    p_matrix = np.full(
+        (NUM_X, NUM_Y),
+        0.0
+    )
+    c=1
+    for y_num in range(NUM_Y-2):
+        for x_num in range(NUM_X-2):
+            p = grid[y_num, x_num].get_pressure()
+            p_x1 = grid[y_num, x_num+1].get_pressure()
+            p_y1 = grid[y_num+1, x_num].get_pressure()
+            p_matrix[y_num, x_num] = p - c*(p_x1 - p)*(DELTA_T/DELTA_X) - c*(p_y1 - p)*(DELTA_T/DELTA_Y)
+    
+    for y_num in range(1, NUM_Y-2):
+        for x_num in range(1, NUM_X-2):
+            grid[y_num, x_num].set_pressure(p_matrix[y_num, x_num])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -75,7 +123,7 @@ def display_pressure(grid):
     fig = plt.figure(figsize=(11, 7), dpi=100)
 
     p_matrix = np.full(
-        (int(LENGTH_X/DELTA_X), int(LENGTH_X/DELTA_X)),
+        (NUM_X, NUM_Y),
         0
     )
     for y_num, row in enumerate(grid):
@@ -83,8 +131,8 @@ def display_pressure(grid):
             p_matrix[y_num, x_num] = node.get_pressure()
 
     plt.contourf(
-        np.linspace(0, LENGTH_X, grid.shape[1]),
-        np.linspace(0, LENGTH_X, grid.shape[0]),
+        np.linspace(0, LENGTH_X, NUM_X),
+        np.linspace(0, LENGTH_Y, NUM_Y),
         p_matrix, 
         cmap=cm.inferno
     ) 
@@ -101,11 +149,11 @@ def display_velocities(grid):
     fig = plt.figure(figsize=(7, 7), dpi=100)
 
     vx_matrix = np.full(
-        (int(LENGTH_X/DELTA_X), int(LENGTH_X/DELTA_X)),
+        (NUM_X, NUM_Y),
         0
     )
     vy_matrix = np.full(
-        (int(LENGTH_X/DELTA_X), int(LENGTH_X/DELTA_X)),
+        (NUM_X, NUM_Y),
         0
     )
     for y_num, row in enumerate(grid):
@@ -114,8 +162,8 @@ def display_velocities(grid):
             vy_matrix[y_num, x_num] = node.get_velocity()[1]
 
     plt.streamplot(
-        np.linspace(0, LENGTH_X, grid.shape[1]),
-        np.linspace(0, LENGTH_X, grid.shape[0]),
+        np.linspace(0, LENGTH_X, NUM_X),
+        np.linspace(0, LENGTH_Y, NUM_Y),
         vx_matrix,
         vy_matrix
     )
@@ -129,6 +177,6 @@ def display_velocities(grid):
 
 print(grid)
 display_pressure(grid)
-display_velocities(grid)
+#display_velocities(grid)
 
 
