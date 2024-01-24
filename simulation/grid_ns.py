@@ -9,165 +9,162 @@ LENGTH_Y = 10.0
 
 DELTA_X = 0.5
 DELTA_Y = 0.5
-DELTA_T = 0.1
+DELTA_T = 0.001
 
 NUM_X = int(LENGTH_X/DELTA_X)
 NUM_Y = int(LENGTH_Y/DELTA_Y)
+POSSON_REPETITIONS = 50
+TOTAL_REPETITIONS = 500
 
-VISCOCITY = 0.0
+VISCOCITY = 1.0
 DENSITY = 1.0
-
-
-class Node:
-    def __init__(self) -> None:
-        self.__velocity = np.array([0, 0])
-        self.__pressure = 0.0
-
-    
-    def __repr__(self) -> str:
-        return "V: "+str(self.__velocity)+"     "+"P: "+str(self.__pressure)
-    
-    
-    def __str__(self) -> str:
-        return "V: "+str(self.__velocity)+"     "+"P: "+str(self.__pressure)
-
-    
-    def set_pressure(self, new_pressure):
-        self.__pressure = new_pressure
-
-
-    def set_velocity(self, new_velocity):
-        self.__velocity = new_velocity
-
-
-    def get_pressure(self):
-        return self.__pressure
-    
-
-    def get_velocity(self):
-        return self.__velocity
+HORIZONTAL_VELOCITY_TOP = 1.0
 
 
 
-grid = np.empty(
-    (NUM_X, NUM_Y),
-    dtype=Node
-)
+# Generate fields
+# ===============
+p_matrix = np.ones((NUM_X, NUM_Y))
+vx_matrix = np.ones((NUM_X, NUM_Y))
+vy_matrix = np.ones((NUM_X, NUM_Y))
 
 
 
-# Add in boundary conditions
-# ==========================
-
-for y_num, row in enumerate(grid):
-    for x_num, node in enumerate(row):
-        y_len = y_num/DELTA_Y
-        x_len = x_num/DELTA_X
-        
-        grid[y_num, x_num] = Node() 
-        grid[y_num, x_num].set_pressure(x_len*y_len)
-        grid[y_num, x_num].set_velocity([-y_len, x_len])
+# Define calculation functions
+# ============================
+def central_difference_x(matrix):
+    diff = np.zeros_like(matrix, dtype=np.float32)
+    diff[1:-1, 1:-1] = (
+        (matrix[1:-1, 2:] - matrix[1:-1, 0:-2])/(2*DELTA_X)
+    )
+    return diff
 
 
+def central_difference_y(matrix):
+    diff = np.zeros_like(matrix, dtype=np.float32)
+    diff[1:-1, 1:-1] = (
+        (matrix[2:, 1:-1] - matrix[0:-2, 1:-1])/(2*DELTA_X)
+    )
+    return diff
+
+
+def laplace(matrix):
+    diff = np.zeros_like(matrix, dtype=np.float32)
+    diff[1:-1, 1:-1] = (
+        (matrix[1:-1, 0:-2] + matrix[0:-2, 1:-1]
+         - 4 * matrix[1:-1, 1:-1]
+         + matrix[1:-1, 2:] + matrix[2:, 1:-1])/DELTA_X**2
+    )
+    return diff
 
 
 # Solve the PDEs
 # ==============
-        
-for t in range(5):
-    p_matrix = np.full(
-        (NUM_X, NUM_Y),
-        0.0
+
+for i in range(TOTAL_REPETITIONS):
+    a_xx = central_difference_x(vx_matrix)
+    a_xy = central_difference_y(vx_matrix)
+    a_yx = central_difference_x(vy_matrix)
+    a_yy = central_difference_y(vy_matrix)
+    laplace_vx = laplace(vx_matrix)
+    laplace_vy = laplace(vy_matrix)
+
+    # Tentative solve to get momentum equation without pressure gradient
+    vx_tent = (
+        vx_matrix + DELTA_T * (
+            VISCOCITY*laplace_vx - DELTA_T*(
+                vx_matrix * a_xx + vy_matrix * a_yy
+            )
+        )
     )
-    c=1
-    for y_num in range(NUM_Y-2):
-        for x_num in range(NUM_X-2):
-            p = grid[y_num, x_num].get_pressure()
-            p_x1 = grid[y_num, x_num+1].get_pressure()
-            p_y1 = grid[y_num+1, x_num].get_pressure()
-            p_matrix[y_num, x_num] = p - c*(p_x1 - p)*(DELTA_T/DELTA_X) - c*(p_y1 - p)*(DELTA_T/DELTA_Y)
+    vy_tent = (
+        vy_matrix + DELTA_T * (
+            VISCOCITY*laplace_vy - DELTA_T*(
+                vx_matrix * a_xx + vy_matrix * a_yy
+            )
+        )
+    )
+
+    # Force boundary conditions
+    vx_tent[0, :] = 0.0
+    vx_tent[:, 0] = 0.0
+    vx_tent[:, -1] = 0.0
+    vx_tent[-1, :] = HORIZONTAL_VELOCITY_TOP
+    vy_tent[0, :] = 0.0
+    vy_tent[:, 0] = 0.0
+    vy_tent[:, -1] = 0.0
+    vy_tent[-1, :] = 0.0
+
+    axx_tent = central_difference_x(vx_tent)
+    ayy_tent = central_difference_y(vy_tent)
+
+    # Compute a pressure correction by solving the pressure-poisson equation
+    rhs = (
+        DENSITY/DELTA_T*(
+            axx_tent + ayy_tent
+        )
+    )
+
+    for j in range(POSSON_REPETITIONS):
+        p_next = np.zeros_like(p_matrix)
+        p_next[1:-1, 1:-1] = 1/4 * (
+            p_matrix[1:-1, 0:-2] + p_matrix[0:-2, 1:-1]
+            + p_matrix[1:-1, 2:  ] + p_matrix[2:  , 1:-1]
+            - DELTA_X**2 * rhs[1:-1, 1:-1]
+        )
+
+        # Pressure Boundary Conditions:
+        p_next[:, -1] = p_next[:, -2]
+        p_next[0,  :] = p_next[1,  :]
+        p_next[:,  0] = p_next[:,  1]
+        p_next[-1, :] = 0.0
+
+        p_matrix = p_next
     
-    for y_num in range(1, NUM_Y-2):
-        for x_num in range(1, NUM_X-2):
-            grid[y_num, x_num].set_pressure(p_matrix[y_num, x_num])
+    dpdx_matrix = central_difference_x(p_matrix)
+    dpdy_matrix = central_difference_y(p_matrix)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def display_pressure(grid):
-    fig = plt.figure(figsize=(11, 7), dpi=100)
-
-    p_matrix = np.full(
-        (NUM_X, NUM_Y),
-        0
+    # Correct velocities so fluid stays incompressible
+    vx_matrix = (
+        vx_tent - DELTA_T/DENSITY * dpdx_matrix
     )
-    for y_num, row in enumerate(grid):
-        for x_num, node in enumerate(row):
-            p_matrix[y_num, x_num] = node.get_pressure()
+    vy_matrix = (
+        vy_tent - DELTA_T/DENSITY * dpdy_matrix
+    )
+
+    # Enforce boundary conditions for velocity
+    vx_matrix[0, :] = 0.0
+    vx_matrix[:, 0] = 0.0
+    vx_matrix[:, -1] = 0.0
+    vx_matrix[-1, :] = HORIZONTAL_VELOCITY_TOP
+    vy_matrix[0, :] = 0.0
+    vy_matrix[:, 0] = 0.0
+    vy_matrix[:, -1] = 0.0
+    vy_matrix[-1, :] = 0.0
+
+
+
+
+
+
+def display_fields(p_matrix, vx_matrix, vy_matrix):
+    fig = plt.figure(figsize=(11, 7), dpi=100)
 
     plt.contourf(
         np.linspace(0, LENGTH_X, NUM_X),
         np.linspace(0, LENGTH_Y, NUM_Y),
         p_matrix, 
-        cmap=cm.inferno
+        cmap=cm.Blues,
+        levels=50
     ) 
     plt.colorbar()
-    plt.title('Pressures')
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.show()
-
-
-
-
-def display_velocities(grid):
-    fig = plt.figure(figsize=(7, 7), dpi=100)
-
-    vx_matrix = np.full(
-        (NUM_X, NUM_Y),
-        0
-    )
-    vy_matrix = np.full(
-        (NUM_X, NUM_Y),
-        0
-    )
-    for y_num, row in enumerate(grid):
-        for x_num, node in enumerate(row):
-            vx_matrix[y_num, x_num] = node.get_velocity()[0]
-            vy_matrix[y_num, x_num] = node.get_velocity()[1]
-
     plt.streamplot(
         np.linspace(0, LENGTH_X, NUM_X),
         np.linspace(0, LENGTH_Y, NUM_Y),
         vx_matrix,
         vy_matrix
     )
-    plt.title('Velocities')
+    plt.title('Pressure & velocity')
     plt.xlabel('X')
     plt.ylabel('Y')
     plt.show()
@@ -175,8 +172,8 @@ def display_velocities(grid):
 
 
 
-print(grid)
-display_pressure(grid)
-#display_velocities(grid)
 
+
+
+display_fields(p_matrix, vx_matrix, vy_matrix)
 
